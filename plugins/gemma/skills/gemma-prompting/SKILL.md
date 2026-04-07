@@ -47,6 +47,26 @@ Use XML tags for structure when the prompt is non-trivial:
 
 Add these only when they buy something. A bare task text is fine for simple questions.
 
+## Verify context received before debugging the prompt
+
+gemma4:26b can confabulate "no code attached" or "please paste the code" even when the context IS in its prompt. This makes it look like a piping/glob bug when it's actually a model confabulation. Wasting iterations on the prompt when the mechanism is fine is the most expensive failure mode in this plugin.
+
+Before iterating on the prompt, **always run a marker test first** to isolate mechanism failures from confabulation:
+
+```bash
+# 3-second sanity check that proves the pipeline carries content end to end
+echo "MARKER_XYZZY_12345" | node gemma-companion.mjs task \
+  "What EXACT string did I send? Reply with just the string, nothing else."
+```
+
+If gemma echoes the marker back, **the mechanism is fine** — any subsequent "no code attached" response is a model confabulation, not a piping or glob failure. Treat the next response accordingly:
+
+- **Tell gemma explicitly** that the content IS in its context: *"The full source is in your context — you can see it. Reference specific lines or function names you find. Do NOT claim the code is missing."*
+- **Ask gemma to quote** something specific from the context as a self-verification: *"Quote the first 3 lines of your context block before answering."* This forces it to actually look.
+- **Cap context size.** Confabulation gets worse near the model's effective ceiling (well below the nominal `num_ctx`). For 26b, ~30KB of context is reliable; ~40KB starts producing fetch failures and confabulation. Strip non-essential files via narrower `--files` patterns rather than throwing the whole tree at it.
+
+When the marker test FAILS (no marker echoed), the issue is in the pipeline: check `--files` glob expansion (the resolver supports `**` and `{a,b}`, but typos in paths still match nothing), check stdin TTY detection if running from a non-shell context, or check the stderr `--files: read N files` line that the companion logs on every run.
+
 ## Model selection
 
 - `gemma4:26b` (default): MoE, ~17 GB, balanced speed and quality. Use for almost everything.

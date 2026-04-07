@@ -16,7 +16,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, globSync } from "node:fs";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
 const DEFAULT_MODEL = "gemma4:26b";
@@ -89,6 +89,73 @@ function readStdinIfPiped() {
   } catch {
     return "";
   }
+}
+
+// ── --files resolution ──
+//
+// The --files arg is whitespace-tokenised so callers can pass either a single
+// pattern, an explicit list, or a glob. Each token is run through brace
+// expansion (e.g. *.{md,json} → *.md, *.json) and then through Node's native
+// fs.globSync, which handles ** recursive globs without any shell shopt
+// dance. Plain paths that have no glob characters and don't exist on disk
+// are still passed through to readFileSync so the error surface is the same
+// as before for typo cases.
+//
+// History: the previous implementation shelled out to `cat ${args.files}`,
+// which silently failed on brace expansion (bash needs unquoted args at the
+// command line, not from Node argv) and on ** (bash needs `shopt -s globstar`).
+// See recurring-errors.md "gemma-companion --files flag has a brittle glob
+// parser" for the friction that motivated the rewrite.
+
+function hasGlobChars(str) {
+  return /[*?[\]{}]/.test(str);
+}
+
+function expandBraces(pattern) {
+  const m = pattern.match(/\{([^{}]+)\}/);
+  if (!m) return [pattern];
+  const options = m[1].split(",");
+  const before = pattern.slice(0, m.index);
+  const after = pattern.slice(m.index + m[0].length);
+  return options.flatMap((opt) => expandBraces(before + opt + after));
+}
+
+function resolveFilesContent(filesArg) {
+  const tokens = filesArg.split(/\s+/).filter(Boolean);
+  const allPaths = new Set();
+
+  for (const token of tokens) {
+    const expanded = expandBraces(token);
+    for (const pattern of expanded) {
+      let matched = false;
+      try {
+        const matches = globSync(pattern);
+        if (matches.length > 0) {
+          for (const m of matches) allPaths.add(m);
+          matched = true;
+        }
+      } catch {
+        // globSync threw — fall through to literal-path handling
+      }
+      if (!matched && !hasGlobChars(pattern)) {
+        // Plain path with no glob chars — pass through to readFileSync
+        // so missing-file cases produce the same warning surface
+        allPaths.add(pattern);
+      }
+    }
+  }
+
+  const parts = [];
+  for (const filePath of allPaths) {
+    try {
+      const content = readFileSync(filePath, "utf-8");
+      parts.push(`=== ${filePath} ===\n${content}`);
+    } catch {
+      // skip unreadable files silently — globSync should not yield these
+      // but plain-path passthrough above can
+    }
+  }
+  return parts.join("\n\n");
 }
 
 // ── Git context (ported from gemini-companion) ──
@@ -175,8 +242,35 @@ async function invokeOllama({ system, user, model, numCtx, think, temperature })
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
-    console.error(`Error contacting Ollama at ${OLLAMA_HOST}: ${err.message}`);
-    console.error(`Is the server running? Try: brew services start ollama`);
+    // Surface the actual cause instead of just "fetch failed". The previous
+    // version made it impossible to distinguish "server down" from "request
+    // body too large" from "Ollama crashed mid-inference" — every failure
+    // looked identical and the user had to guess which one to debug.
+    console.error(`Error contacting Ollama at ${OLLAMA_HOST}/api/chat`);
+    console.error(`  Error name:    ${err.name}`);
+    console.error(`  Error message: ${err.message}`);
+    if (err.cause) {
+      const causeDetail =
+        err.cause.code || err.cause.message || String(err.cause);
+      console.error(`  Underlying:    ${causeDetail}`);
+    }
+    if (err.name === "AbortError" || err.name === "TimeoutError") {
+      console.error(
+        `  Hint: request timed out after ${REQUEST_TIMEOUT_MS / 1000}s. Try a smaller --files context, a faster model (--model fast), or check 'ollama ps' for stuck inference.`,
+      );
+    } else if (err.cause?.code === "ECONNREFUSED") {
+      console.error(
+        `  Hint: Ollama server is not running. Try: brew services start ollama`,
+      );
+    } else if (err.cause?.code === "ECONNRESET") {
+      console.error(
+        `  Hint: server reset the connection mid-request. This often means Ollama crashed processing a large prompt or the model went OOM. Check 'ollama ps' for the runner state and consider a smaller context or a smaller model.`,
+      );
+    } else {
+      console.error(
+        `  Hint: check 'brew services list | grep ollama', 'curl ${OLLAMA_HOST}/api/tags', and 'ollama ps' to triangulate the failure.`,
+      );
+    }
     process.exit(1);
   }
 
@@ -260,12 +354,16 @@ async function cmdTask(args) {
   // Gather file context if --files specified
   let context = "";
   if (args.files) {
-    const fileContent = run(`cat ${args.files} 2>/dev/null`, {
-      fallback: "",
-      timeout: 15_000,
-    });
+    const fileContent = resolveFilesContent(args.files);
     if (!fileContent) {
       console.error(`Warning: --files "${args.files}" matched no files.`);
+    } else {
+      // Count file headers we added so the caller can verify the resolver
+      // saw what they expected, without having to do a marker test.
+      const fileCount = (fileContent.match(/^=== /gm) || []).length;
+      console.error(
+        `--files: read ${fileCount} file${fileCount === 1 ? "" : "s"} (${fileContent.length} bytes)`,
+      );
     }
     context = fileContent;
   }
@@ -273,6 +371,7 @@ async function cmdTask(args) {
   // Also accept stdin piped context
   const stdinData = readStdinIfPiped();
   if (stdinData) {
+    console.error(`stdin: read ${stdinData.length} bytes of piped context`);
     context = context ? `${context}\n\n${stdinData}` : stdinData;
   }
 
