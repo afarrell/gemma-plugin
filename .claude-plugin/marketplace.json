@@ -1,0 +1,21 @@
+{
+  "name": "gemma-local",
+  "owner": {
+    "name": "Alex Farrell"
+  },
+  "metadata": {
+    "description": "Local marketplace for the Gemma plugin — Claude Code consultation helpers backed by local Ollama models.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "gemma",
+      "description": "Delegate cheap consultations (explanations, rubber-duck debugging, boilerplate, second opinions) to a local gemma4 model via Ollama. Zero-cost, zero-quota, runs fully offline. Complements the gemini plugin — gemma is the Haiku-tier consultant, not an agent.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Alex Farrell"
+      },
+      "source": "./plugins/gemma"
+    }
+  ]
+}
