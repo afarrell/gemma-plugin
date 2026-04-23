@@ -31,24 +31,37 @@ brew services start ollama
 ```
 
 3. **If `defaultModelPulled` is false** (server is up but `gemma4:26b` is missing):
-   - Use `AskUserQuestion` to ask whether Claude should pull the model now. Warn that it is ~17 GB.
-   - Options:
-     - `Pull gemma4:26b (~17 GB, Recommended)`
-     - `Pull a smaller variant (e4b ~9.6 GB)`
+   - Use `AskUserQuestion` to ask whether Claude should pull the model now.
+   - Options (default / review-heavy / lean / skip):
+     - `Pull gemma4:26b (~17 GB, Recommended — balanced default for 'task')`
+     - `Pull gemma4:31b (~20 GB, dense — auto-preferred for 'review' and 'adversarial-review')`
+     - `Pull a smaller variant (e4b ~9.6 GB, fast but weaker)`
      - `Skip for now`
-   - If they pick the recommended option, run:
+   - If they pick 26b:
 
 ```bash
 ollama pull gemma4:26b
 ```
 
-   - If they pick the smaller variant, run:
+   - If they pick 31b:
+
+```bash
+ollama pull gemma4:31b
+```
+
+   - If they pick the smaller variant:
 
 ```bash
 ollama pull gemma4:e4b
 ```
 
-4. **After any action**, re-run the setup check:
+4. **If the default is pulled but `gemma4:31b` isn't, AND the user runs `/gemma:review` or `/gemma:adversarial-review` often:** offer to pull 31b as an upgrade. The companion will auto-pick 31b for those subcommands when installed, materially improving review quality. This is optional — 26b alone is functional.
+
+```bash
+ollama pull gemma4:31b
+```
+
+5. **After any action**, re-run the setup check:
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/gemma-companion.mjs" setup --json

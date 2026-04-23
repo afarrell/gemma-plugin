@@ -10,6 +10,12 @@ Run:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/gemma-companion.mjs" review $ARGUMENTS
 ```
 
+Model selection:
+
+- The companion auto-prefers `gemma4:31b` (dense) for `review` when it's installed — deeper reasoning catches subtler findings. Falls back to `gemma4:26b` (MoE) if 31b isn't pulled.
+- If the diff is large and 31b feels slow, pass `-m moe` to force 26b for a materially faster pass.
+- The chosen model is logged to stderr; surface it if the user asks what ran.
+
 Output rules:
 
 - Present gemma4's review findings verbatim, ordered by severity.

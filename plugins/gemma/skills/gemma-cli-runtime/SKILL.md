@@ -23,7 +23,8 @@ Execution rules:
 - Use `task` for every rescue request, including explanations, diagnosis, rubber-duck debugging, boilerplate drafts, and summarization.
 - You may use the `gemma-prompting` skill to rewrite the user's request into a tighter prompt before the single `task` call.
 - That prompt drafting is the only Claude-side work allowed. Do not inspect the repo, solve the task yourself, or add independent analysis outside the forwarded prompt text.
-- Leave model unset by default (defaults to `gemma4:26b`). Add `-m` only when the user explicitly asks for a specific variant.
+- Leave `-m` unset by default. The companion auto-picks the best installed model for the subcommand: `task` prefers `gemma4:26b` (MoE, balanced), `review` and `adversarial-review` prefer `gemma4:31b` (dense, deeper reasoning) when it's installed. Rescue agent only runs `task`, so the effective default is 26b. The chosen model is logged to stderr when it isn't the historical default, so the user always sees what ran.
+- Add `-m` only when the user explicitly asks for a specific variant or when `gemma-prompting` guidance recommends an override for this situation.
 - Model aliases: `fast`/`e2b` → `gemma4:e2b`, `edge`/`e4b` → `gemma4:e4b`, `moe`/`26b` → `gemma4:26b`, `dense`/`31b` → `gemma4:31b`.
 - Context scoping: `--files "src/**/*.ts"` pipes matching files via shell glob. The companion reads them server-side and inlines them into the prompt.
 - The companion auto-bumps `num_ctx` above the 32K default when input is large. Use `--num-ctx <n>` only to override explicitly.

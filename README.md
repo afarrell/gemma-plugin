@@ -18,7 +18,7 @@ They're complementary, not competing. Use gemma-rescue when you want a cheap sec
 ## Architecture
 
 - **Transport:** HTTP POST to `http://127.0.0.1:11434/api/chat`. Uses the plain Ollama base URL, NOT `/v1`. The r/openclaw Gemma 4 megathread identified `/v1` as the single largest source of tool-calling breakage.
-- **Default model:** `gemma4:26b` (MoE, ~17 GB, 256K context window, ~3.8B active parameters per token).
+- **Model selection:** per-subcommand auto-pick from what's installed. `task` prefers `gemma4:26b` (MoE, balanced). `review` and `adversarial-review` prefer `gemma4:31b` (dense, deeper reasoning) and fall back to 26b. Override with `-m <alias>`; the chosen model is logged to stderr when it differs from the historical default.
 - **Default `num_ctx`:** 32768, auto-bumped when input is large. 32K is the community-reported minimum for reliable context retention at this tier.
 - **Default thinking mode:** off. The r/LocalLLaMA thread this plugin is based on confirmed non-thinking has no meaningful quality loss for routine consultations and is noticeably faster.
 - **Non-agentic by design.** gemma4 via Ollama cannot read files, edit files, or run commands. The companion script reads files server-side (in Node) via `--files` and inlines them into the prompt as context. Claude stays the agent; gemma4 is the consultant.
@@ -43,15 +43,18 @@ plugins/gemma/
 
 ## Installation
 
-Prerequisites: Ollama installed and running, `gemma4:26b` pulled.
+Prerequisites: Ollama installed and running. Pull at least one gemma4 model — `gemma4:26b` for balanced use, `gemma4:31b` additionally if you use `/gemma:review` or `/gemma:adversarial-review` often (the companion auto-prefers 31b for those subcommands).
 
 ```bash
 # Install Ollama and start the service
 brew install ollama
 brew services start ollama
 
-# Pull the default model (~17 GB download)
+# Pull the balanced default (~17 GB)
 ollama pull gemma4:26b
+
+# Optional — pull the dense variant for deeper review/adversarial-review (~20 GB)
+ollama pull gemma4:31b
 ```
 
 Register the marketplace with Claude Code:
