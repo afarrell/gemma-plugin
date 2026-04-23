@@ -10,6 +10,12 @@ Run:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/gemma-companion.mjs" adversarial-review $ARGUMENTS
 ```
 
+Model selection:
+
+- The companion auto-prefers `gemma4:31b` (dense) for `adversarial-review` when it's installed — challenging design choices benefits materially from deeper reasoning. Falls back to `gemma4:26b` (MoE) if 31b isn't pulled.
+- If the diff is large and 31b feels slow, pass `-m moe` to force 26b.
+- The chosen model is logged to stderr; surface it if the user asks what ran.
+
 Output rules:
 
 - Present gemma4's adversarial concerns verbatim.

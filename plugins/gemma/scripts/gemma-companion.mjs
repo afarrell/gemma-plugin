@@ -30,6 +30,19 @@ const MODELS = {
   "gemma4:31b": { ramGB: 20, contextWindow: 262_144, tier: "dense", speed: "slow" },
 };
 
+// Per-subcommand model preferences, highest-quality-first.
+// Rationale:
+//  - task: general consultation, explanation, rubber-duck — 26b MoE is the balanced sweet spot.
+//    Dense 31b is fine if 26b is missing. Edge variants are last-resort.
+//  - review / adversarial-review: deeper analytical work benefits from dense reasoning;
+//    31b catches subtler issues than 26b for the same latency cost on M-series.
+// The resolver picks the first installed candidate and falls through if none match.
+const MODEL_PREFERENCES = {
+  task: ["gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:e2b"],
+  review: ["gemma4:31b", "gemma4:26b", "gemma4:e4b"],
+  "adversarial-review": ["gemma4:31b", "gemma4:26b", "gemma4:e4b"],
+};
+
 // ── Helpers ──
 
 function run(cmd, opts = {}) {
@@ -80,6 +93,50 @@ async function listInstalledModels() {
   } catch {
     return [];
   }
+}
+
+// Pick the best installed model for a subcommand. Explicit -m always wins.
+// Emits a one-line stderr note when the companion auto-picks so the caller sees
+// which model ran. Falls back to DEFAULT_MODEL if none of the preferred models
+// are pulled (ollama will then surface a clear "model not found" error).
+async function selectModel(subcommand, explicit) {
+  if (explicit) return explicit;
+
+  const preferences = MODEL_PREFERENCES[subcommand];
+  if (!preferences) return DEFAULT_MODEL;
+
+  const installed = new Set((await listInstalledModels()).map((m) => m.name));
+
+  for (const candidate of preferences) {
+    if (installed.has(candidate)) {
+      // Only announce when we picked something other than the historical default,
+      // or when the historical default isn't installed — keeps quiet in the common case.
+      if (candidate !== DEFAULT_MODEL || !installed.has(DEFAULT_MODEL)) {
+        const tier = MODELS[candidate]?.tier || "";
+        process.stderr.write(
+          `gemma: using ${candidate}${tier ? ` (${tier})` : ""} — best installed match for \`${subcommand}\`. Override with -m <alias>.\n`,
+        );
+      }
+      return candidate;
+    }
+  }
+
+  // None of the preferred variants are pulled. Prefer *any* installed gemma4
+  // variant over forcing a known miss — if the user only has e2b or e4b, we'd
+  // rather use it than produce a "model not found" error.
+  const anyGemma = [...installed].find((n) => n.startsWith("gemma4:"));
+  if (anyGemma) {
+    process.stderr.write(
+      `gemma: preferred models for \`${subcommand}\` (${preferences.join(", ")}) not installed — using ${anyGemma} instead. Run /gemma:setup to pull a better match.\n`,
+    );
+    return anyGemma;
+  }
+
+  // No gemma4 variant installed at all — return default and let ollama error cleanly.
+  process.stderr.write(
+    `gemma: no gemma4 variant installed. Falling back to ${DEFAULT_MODEL}; run /gemma:setup first.\n`,
+  );
+  return DEFAULT_MODEL;
 }
 
 function readStdinIfPiped() {
@@ -349,7 +406,7 @@ async function cmdTask(args) {
     console.error("Error: No task description provided.");
     process.exit(1);
   }
-  const model = args.model || DEFAULT_MODEL;
+  const model = await selectModel("task", args.model);
 
   // Gather file context if --files specified
   let context = "";
@@ -410,7 +467,7 @@ async function cmdReview(args) {
     if (status) console.log(`\nGit status:\n${status}`);
     return;
   }
-  const model = args.model || DEFAULT_MODEL;
+  const model = await selectModel("review", args.model);
   warnIfExpensive(model, diff);
 
   const system = `You are a senior code reviewer running as gemma4 via Ollama. You are a cheap second-opinion reviewer, not the final authority — find real issues, but don't invent concerns to sound thorough.`;
@@ -467,7 +524,7 @@ async function cmdAdversarialReview(args) {
     console.log("Nothing to review — no changes detected in the target scope.");
     return;
   }
-  const model = args.model || DEFAULT_MODEL;
+  const model = await selectModel("adversarial-review", args.model);
   const focusText = args.rest.length > 0 ? `\n\nAdditional focus: ${args.rest.join(" ")}` : "";
   warnIfExpensive(model, diff);
 

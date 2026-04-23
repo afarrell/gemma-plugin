@@ -69,12 +69,30 @@ When the marker test FAILS (no marker echoed), the issue is in the pipeline: che
 
 ## Model selection
 
-- `gemma4:26b` (default): MoE, ~17 GB, balanced speed and quality. Use for almost everything.
-- `gemma4:e4b`: Edge model, ~9.6 GB, faster but noticeably weaker reasoning. Use only when you need sub-5-second responses.
-- `gemma4:e2b`: Edge model, ~7.2 GB, fastest. Use only for the simplest lookups.
-- `gemma4:31b`: Dense, ~20 GB, highest quality but slowest. Reserve for genuinely tricky single-file problems where the MoE model fell short.
+The companion auto-picks the best *installed* model for the subcommand it's running. Users override with `-m <alias>` when they have a specific reason. This section is about when an override is worth it.
 
-Default to 26b. Only switch when there is a specific reason.
+**Per-subcommand auto-pick (highest-quality-first cascade, falls through to whatever is installed):**
+
+| Subcommand | Preference cascade | Why |
+|------------|-------------------|-----|
+| `task` (general consultation) | 26b → 31b → e4b → e2b | MoE is the balanced sweet spot — fast enough for consultation, deep enough for most bounded problems. |
+| `review` | 31b → 26b → e4b | Dense reasoning catches subtler code-review findings; latency cost is small for the quality lift. |
+| `adversarial-review` | 31b → 26b → e4b | Same reason — challenging design needs deeper reasoning than pattern matching. |
+
+**Model catalog (not all variants may be installed — check `ollama list`):**
+
+- `gemma4:26b` (MoE, ~17 GB, balanced): default for `task`. Fast and broadly capable.
+- `gemma4:31b` (dense, ~20 GB, slow): auto-preferred for `review`/`adversarial-review` when installed. Best quality on subtler analytical work. Worth pulling if you do code review often.
+- `gemma4:e4b` (edge, ~9.6 GB, fast): use for simple classification, short summarization, speed-over-quality lookups.
+- `gemma4:e2b` (edge, ~7.2 GB, fastest): simplest one-shot lookups only.
+
+**When to override with `-m`:**
+
+- `-m 31b` / `-m dense` on `task`: the consultation is unusually analytical (subtle bug hunt, architecture question, code-review-in-task-form) and the 26b default felt shallow.
+- `-m 26b` / `-m moe` on `review` when the diff is large: 31b gets slow on big contexts; 26b is materially faster and usually good enough for an initial pass.
+- `-m e4b` / `-m edge`: the task is a trivial lookup and you want a sub-5-second response.
+
+Leave `-m` unset in most cases — the auto-pick is tuned for the subcommand, honors what's installed, and logs the chosen model to stderr so you can see what ran.
 
 ## Thinking mode
 
