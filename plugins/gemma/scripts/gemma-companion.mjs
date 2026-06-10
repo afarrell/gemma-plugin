@@ -26,21 +26,23 @@ const REQUEST_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 const MODELS = {
   "gemma4:e2b": { ramGB: 7.2, contextWindow: 131_072, tier: "edge", speed: "fastest" },
   "gemma4:e4b": { ramGB: 9.6, contextWindow: 131_072, tier: "edge", speed: "fast" },
+  "gemma4:e4b-mxfp8": { ramGB: 11, contextWindow: 131_072, tier: "edge", speed: "fast" },
   "gemma4:26b": { ramGB: 17, contextWindow: 262_144, tier: "moe", speed: "balanced" },
-  "gemma4:31b": { ramGB: 20, contextWindow: 262_144, tier: "dense", speed: "slow" },
 };
 
 // Per-subcommand model preferences, highest-quality-first.
 // Rationale:
-//  - task: general consultation, explanation, rubber-duck — 26b MoE is the balanced sweet spot.
-//    Dense 31b is fine if 26b is missing. Edge variants are last-resort.
-//  - review / adversarial-review: deeper analytical work benefits from dense reasoning;
-//    31b catches subtler issues than 26b for the same latency cost on M-series.
+//  - gemma4:26b (26B-A4B nvfp4, Ollama MLX runner) is the sagan-wide standard local
+//    model for ALL subcommands (bake-off v6, 2026-06-10: 58.5 tps decode — fastest
+//    local model, and sharing one resident model avoids 16GB evict/reload cycles
+//    against the other Ollama consumers under OLLAMA_MAX_LOADED_MODELS=1).
+//  - gemma4:31b was benchmarked unusable on sagan and removed from disk; dropped here.
+//  - e4b-mxfp8 (the installed edge-tag name) is the low-memory fallback.
 // The resolver picks the first installed candidate and falls through if none match.
 const MODEL_PREFERENCES = {
-  task: ["gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:e2b"],
-  review: ["gemma4:31b", "gemma4:26b", "gemma4:e4b"],
-  "adversarial-review": ["gemma4:31b", "gemma4:26b", "gemma4:e4b"],
+  task: ["gemma4:26b", "gemma4:e4b-mxfp8", "gemma4:e2b"],
+  review: ["gemma4:26b", "gemma4:e4b-mxfp8"],
+  "adversarial-review": ["gemma4:26b", "gemma4:e4b-mxfp8"],
 };
 
 // ── Helpers ──
